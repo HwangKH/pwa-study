@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>계산기</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2196f3" />
+  <link rel="icon" href="icon-192.png" />
+  <style>
+    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 50px; }
+    #calc { display: grid; grid-template-columns: repeat(4, 60px); gap: 10px; }
+    button { padding: 20px; font-size: 18px; }
+    #display { width: 250px; margin-bottom: 20px; font-size: 24px; padding: 10px; text-align: right; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <div id="display">0</div>
+  <div id="calc">
+    <button onclick="press('7')">7</button>
+    <button onclick="press('8')">8</button>
+    <button onclick="press('9')">9</button>
+    <button onclick="press('/')">÷</button>
+
+    <button onclick="press('4')">4</button>
+    <button onclick="press('5')">5</button>
+    <button onclick="press('6')">6</button>
+    <button onclick="press('*')">×</button>
+
+    <button onclick="press('1')">1</button>
+    <button onclick="press('2')">2</button>
+    <button onclick="press('3')">3</button>
+    <button onclick="press('-')">−</button>
+
+    <button onclick="press('0')">0</button>
+    <button onclick="press('.')">.</button>
+    <button onclick="calculate()">=</button>
+    <button onclick="press('+')">+</button>
+
+    <button onclick="clearDisplay()" style="grid-column: span 4; background: #f44336; color: white;">C</button>
+  </div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js');
+    }
+
+    let expression = '';
+
+    function press(val) {
+      if (expression === '0') expression = '';
+      expression += val;
+      document.getElementById('display').textContent = expression;
+    }
+
+    function calculate() {
+      try {
+        const result = eval(expression);
+        document.getElementById('display').textContent = result;
+        expression = result.toString();
+      } catch {
+        document.getElementById('display').textContent = 'Error';
+        expression = '';
+      }
+    }
+
+    function clearDisplay() {
+      expression = '';
+      document.getElementById('display').textContent = '0';
+    }
+  </script>
+</body>
+</html>
