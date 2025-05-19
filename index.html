@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PWA 테스트</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="icon" href="icon-192.png" />
+</head>
+<body>
+  <h1>✅ PWA 데모 페이지</h1>
+  <p>이 페이지를 홈 화면에 추가해보세요.</p>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(() => console.log('✅ Service Worker 등록됨'))
+        .catch(err => console.error('❌ 등록 실패:', err));
+    }
+  </script>
+</body>
+</html>
