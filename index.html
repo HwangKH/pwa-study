@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <link rel="manifest" href="manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js');
+    });
+  }
+</script>
+  <base href="/valetcardchecker/">
+  <link rel="manifest" href="manifest.json">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Swipe to Confirm</title>
+  <style>
+    body,
+    .card-container,
+    .timestamp,
+    .timestamp div,
+    .delete-btn {
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+    }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    .swipe-button {
+      display: none;
+    }
+    .timestamp {
+      padding-top: 10px;
+      user-select: none;
+    }
+    .timestamp div {
+      margin-top: 4px;
+      font-size: 14px;
+      color: #ccc;
+    }
+    .card-container {
+      position: relative;
+      z-index: 0;
+      width: 100%;
+      max-width: 350px;
+      height: 200px;
+      margin: 0 auto 30px;
+      border-radius: 16px;
+      overflow: hidden;
+      background-image: url('https://picsum.photos/350/200'); /* 카드 이미지 */
+      background-size: cover;
+      background-position: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      touch-action: none;
+    }
+
+    .benefit-ended {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 12px;
+      font-size: 16px;
+      display: none;
+      z-index: 3;
+    }
+
+    .overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 0%;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      overflow: hidden;
+      transition: height 0.3s ease;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      /* align-items: center;  가운데 정렬 제거, 상하 중심 정렬만 유지 */
+      z-index: 1;
+    }
+    .swipe-hint {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: white;
+      font-size: 18px;
+      background: rgba(0,0,0,0.3);
+      padding: 6px 10px;
+      border-radius: 12px;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .usage-count {
+      position: absolute;
+      bottom: 10px;
+      right: 16px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 14px;
+      z-index: 2;
+    }
+    .shake {
+      animation: shake 0.5s infinite;
+    }
+
+    @keyframes shake {
+      0% { transform: rotate(0deg); }
+      25% { transform: rotate(1.5deg); }
+      50% { transform: rotate(-1.5deg); }
+      75% { transform: rotate(1.5deg); }
+      100% { transform: rotate(0deg); }
+    }
+
+    .delete-btn {
+      margin-left: 8px;
+      color: red;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .timestamp .ok {
+      color: #4CAF50;
+    }
+    .timestamp .warn {
+      color: #FFD700;
+    }
+  </style>
+  <script>
+    function handleImageUpload(file, callback) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 350;
+          const scale = maxWidth / img.width;
+          canvas.width = maxWidth;
+          canvas.height = img.height * scale;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+          callback(compressedDataUrl);
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function saveCardsToStorage() {
+      const cards = [];
+      document.querySelectorAll('.card-container:not(#emptyCard)').forEach(card => {
+        const name = card.dataset.name;
+        const maxUsage = parseInt(card.dataset.maxUsage);
+        const timestamps = Array.from(card.querySelectorAll('.timestamp div')).map(div => ({
+          text: div.textContent,
+          className: div.className
+        }));
+        const usageCountText = card.querySelector('.usage-count').textContent;
+        const backgroundImage = card.style.backgroundImage;
+        const color = card.style.backgroundColor || null;
+        cards.push({ name, maxUsage, timestamps, usageCountText, backgroundImage, color });
+      });
+      localStorage.setItem('savedCards', JSON.stringify(cards));
+    }
+
+    const cardConfig = {
+      maxUsage: 3
+    };
+
+    let startX = 0;
+    function startSwipe(e) {
+      startX = e.touches[0].clientX;
+    }
+
+    function moveSwipe(e) {
+      // 시각 피드백이 필요하면 여기에 효과 넣을 수 있음
+    }
+
+    function endSwipe(e, card) {
+      clearTimeout(holdTimer);
+      const currentX = e.changedTouches[0].clientX;
+      const diff = currentX - startX;
+      if (diff > 100) {
+        saveTime(card);
+      }
+    }
+
+    function saveTime(card) {
+      const now = new Date();
+      const timestamp = now.toISOString().slice(0, 16).replace('T', ' ');
+      const tsLabel = card.querySelector('.timestamp');
+      const usageCount = tsLabel.childElementCount;
+      const maxUsage = parseInt(card.dataset.maxUsage);
+
+      let confirmed = true;
+      let symbol = '✔';
+      let className = 'ok';
+
+      if (usageCount >= maxUsage) {
+        confirmed = confirm('혜택 한도를 초과했습니다. 그래도 사용하시겠습니까?');
+        if (!confirmed) return;
+        symbol = '⚠️';
+        className = 'warn';
+      }
+
+      const newEntry = document.createElement('div');
+      newEntry.textContent = `${symbol} 혜택 날짜: ${timestamp}`;
+      newEntry.classList.add(className);
+      tsLabel.appendChild(newEntry);
+
+      const updatedCount = tsLabel.childElementCount;
+      card.querySelector('.usage-count').textContent = `${updatedCount}/${maxUsage}`;
+      const benefitEndedLabel = card.querySelector('.benefit-ended');
+      if (updatedCount >= maxUsage) {
+        benefitEndedLabel.style.display = 'block';
+      } else {
+        benefitEndedLabel.style.display = 'none';
+      }
+      card.querySelector('.swipe-hint').style.opacity = '0';
+
+      const percent = Math.min((updatedCount / maxUsage) * 100, 100);
+      card.querySelector('.overlay').style.height = percent + '%';
+
+      saveCardsToStorage();
+    }
+
+    let holdTimer = null;
+
+    function startHold(e) {
+      if (e.type === 'touchstart') startX = e.touches[0].clientX;
+      holdTimer = setTimeout(() => {
+        enableShakeMode(document.querySelector('.card-container'));
+      }, 800); // 롱클릭 시간
+    }
+    function enableShakeMode(card) {
+      card.classList.add('shake');
+      card.querySelectorAll('.timestamp div').forEach(div => {
+        if (!div.querySelector('.delete-btn')) {
+          const delBtn = document.createElement('span');
+          delBtn.className = 'delete-btn';
+          delBtn.textContent = '❌';
+          delBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            if (confirm('이 혜택 날짜를 삭제하시겠습니까?')) {
+              const maxUsage = parseInt(card.dataset.maxUsage);
+              div.remove();
+              const tsLabel = card.querySelector('.timestamp');
+              const usageCount = tsLabel.childElementCount;
+              card.querySelector('.usage-count').textContent = `${usageCount}/${maxUsage}`;
+              const percent = Math.min((usageCount / maxUsage) * 100, 100);
+              card.querySelector('.overlay').style.height = percent + '%';
+
+              const benefitEndedLabel = card.querySelector('.benefit-ended');
+              if (usageCount >= maxUsage) {
+                benefitEndedLabel.style.display = 'block';
+              } else {
+                benefitEndedLabel.style.display = 'none';
+              }
+              saveCardsToStorage();
+            }
+          };
+          div.appendChild(delBtn);
+        }
+      });
+    }
+
+    function endHold(e) {
+      clearTimeout(holdTimer);
+    }
+
+    function updateUsageCount() {
+      const tsLabel = document.getElementById('ts');
+      const usageCount = tsLabel.childElementCount;
+      document.getElementById('usageCount').textContent = `${usageCount}/${cardConfig.maxUsage}`;
+      if (usageCount >= cardConfig.maxUsage) {
+        document.getElementById('benefitEnded').style.display = 'block';
+      } else {
+        document.getElementById('benefitEnded').style.display = 'none';
+      }
+      const percent = Math.min((usageCount / cardConfig.maxUsage) * 100, 100);
+      document.querySelector('.overlay').style.height = percent + '%';
+    }
+
+    function handleBodyClick(e) {
+      document.querySelectorAll('.card-container').forEach(card => {
+        if (!card.contains(e.target)) {
+          card.classList.remove('shake');
+          card.querySelectorAll('.delete-btn').forEach(btn => btn.remove());
+        }
+      });
+      document.querySelectorAll('.menu-options').forEach(menu => {
+  if (!menu.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.addEventListener('click', handleBodyClick);
+
+      document.getElementById('addCardBtn').addEventListener('click', () => {
+        const modal = document.getElementById('cardFormModal');
+        modal.style.display = modal.style.display === 'none' ? 'block' : 'none';
+      });
+    });
+
+    function addNewCard() {
+      const name = document.getElementById('cardNameInput').value.trim();
+      const max = parseInt(document.getElementById('maxUsageInput').value);
+      if (!name || isNaN(max) || max < 1) {
+        alert('이름과 최대 횟수를 올바르게 입력하세요.');
+        return;
+      }
+
+      const imageFile = document.getElementById('cardImageInput').files[0];
+      if (imageFile) {
+        handleImageUpload(imageFile, (compressedImage) => {
+          createCard(name, max, compressedImage);
+        });
+        document.getElementById('cardFormModal').style.display = 'none';
+        return;
+      }
+      createCard(name, max, null);
+      document.getElementById('cardFormModal').style.display = 'none';
+    }
+
+    function createCard(name, max, imageUrl) {
+      const card = document.createElement('div');
+      card.className = 'card-container';
+      if (imageUrl) {
+        card.style.backgroundImage = `url('${imageUrl}')`;
+      } else {
+        // 초, 노, 파, 빨, 순
+        const colors = ['#00C853', '#FFD600', '#2979FF', '#D50000', '#7C4DFF'];
+        const cardIndex = document.querySelectorAll('.card-container:not(#emptyCard)').length;
+        card.style.backgroundColor = colors[cardIndex % colors.length];
+        card.style.backgroundImage = "none";
+      }
+
+      card.innerHTML = `
+  <div class="card-name" style="position: absolute; top: 10px; left: 16px; font-size: 18px; font-weight: bold; color: white; text-shadow: 1px 1px 4px rgba(0,0,0,0.6); z-index: 3;">
+    ${name}
+  </div>
+  <div class="card-menu" style="position: absolute; top: 10px; right: 10px; z-index: 4;">
+    <button class="menu-button" style="background: none; border: none; color: white; font-size: 20px;">⋮</button>
+    <div class="menu-options" style="display: none; position: absolute; top: 30px; right: 0; background: white; color: black; border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); z-index: 5;">
+      <div class="delete-card" style="padding: 8px 12px; cursor: pointer;">삭제</div>
+    </div>
+  </div>
+  <div class="benefit-ended">사용횟수 만료</div>
+  <div class="swipe-hint">➡️ 사용할 때 스와이프하세요</div>
+  <div class="usage-count">0/${max}</div>
+  <div class="overlay"><div class="timestamp"></div></div>
+`;
+
+      // Reapply menu event listeners
+      const menuBtn = card.querySelector('.menu-button');
+      const menuOptions = card.querySelector('.menu-options');
+      menuBtn.onclick = (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.menu-options').forEach(menu => {
+          if (menu !== menuOptions) menu.style.display = 'none';
+        });
+        menuOptions.style.display = menuOptions.style.display === 'block' ? 'none' : 'block';
+      };
+      card.querySelector('.delete-card').onclick = () => {
+        if (confirm(`"${name}" 카드를 삭제하시겠습니까?`)) {
+          card.remove();
+          saveCardsToStorage();
+        } else {
+          menuOptions.style.display = 'none';
+        }
+      };
+
+      card.ontouchstart = (e) => {
+        startSwipe(e);
+        holdTimer = setTimeout(() => {
+          enableShakeMode(card);
+        }, 800);
+      };
+      card.ontouchend = (e) => { endSwipe(e, card); endHold(e); };
+      card.onmousedown = startHold;
+      card.onmouseup = endHold;
+
+      const emptyCard = document.getElementById('emptyCard');
+      if (emptyCard) emptyCard.remove();
+      document.body.insertBefore(card, document.getElementById('cardFormModal'));
+
+      card.dataset.maxUsage = max;
+      card.dataset.name = name;
+
+      alert(`카드 "${name}"가 최대 ${max}회로 추가되었습니다.`);
+      saveCardsToStorage();
+    }
+
+    window.onload = function() {
+      const saved = localStorage.getItem('savedCards');
+      if (!saved) return;
+
+      const cards = JSON.parse(saved);
+      cards.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'card-container';
+        if (c.backgroundImage && c.backgroundImage !== 'none') {
+          card.style.backgroundImage = c.backgroundImage;
+        } else {
+          card.style.backgroundColor = c.color;
+          card.style.backgroundImage = "none";
+        }
+
+        card.innerHTML = `
+          <div class="card-name" style="position: absolute; top: 10px; left: 16px; font-size: 18px; font-weight: bold; color: white; text-shadow: 1px 1px 4px rgba(0,0,0,0.6); z-index: 3;">
+            ${c.name}
+          </div>
+          <div class="benefit-ended" style="display: ${c.timestamps.length >= c.maxUsage ? 'block' : 'none'};">사용횟수 만료</div>
+          <div class="swipe-hint">➡️ 사용할 때 스와이프하세요</div>
+          <div class="usage-count">${c.usageCountText}</div>
+          <div class="overlay"><div class="timestamp"></div></div>
+        `;
+        card.dataset.maxUsage = c.maxUsage;
+        card.dataset.name = c.name;
+
+        const tsLabel = card.querySelector('.timestamp');
+        c.timestamps.forEach(t => {
+          const div = document.createElement('div');
+          div.textContent = t.text;
+          div.className = t.className;
+          tsLabel.appendChild(div);
+        });
+
+        const percent = Math.min((tsLabel.childElementCount / c.maxUsage) * 100, 100);
+        card.querySelector('.overlay').style.height = percent + '%';
+
+        card.ontouchstart = (e) => {
+          startSwipe(e);
+          holdTimer = setTimeout(() => {
+            enableShakeMode(card);
+          }, 800);
+        };
+        card.ontouchend = (e) => { endSwipe(e, card); endHold(e); };
+        card.onmousedown = startHold;
+        card.onmouseup = endHold;
+
+        const emptyCard = document.getElementById('emptyCard');
+        if (emptyCard) emptyCard.remove();
+        document.body.insertBefore(card, document.getElementById('cardFormModal'));
+      });
+    };
+  </script>
+</head>
+<body>
+  <div id="emptyCard" class="card-container" style="display: flex; justify-content: center; align-items: center; background-image: none; background-color: #ddd;">
+  </div>
+
+  <div id="cardFormModal" style="display: none; position: fixed; bottom: 80px; right: 20px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 10;">
+    <label>카드 이름:<br><input type="text" id="cardNameInput" style="width: 200px;"></label><br><br>
+    <label>최대 혜택 횟수:<br><input type="number" id="maxUsageInput" style="width: 200px;"></label><br><br>
+    <label>카드 이미지 업로드:<br><input type="file" id="cardImageInput" accept="image/*" style="width: 200px;"></label><br><br>
+    <button onclick="addNewCard()">추가</button>
+    <button onclick="document.getElementById('cardFormModal').style.display = 'none'" style="margin-left: 8px;">취소</button>
+  </div>
+
+  <div style="display: flex; justify-content: center; margin-top: 20px;">
+    <button id="addCardBtn" style="width: 56px; height: 56px; font-size: 28px; border-radius: 50%; background: #2196F3; color: white; border: none;">+</button>
+  </div>
+</button>
+  <button id="resetAllBtn" style="position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px; font-size: 20px; border-radius: 50%; background: #f44336; color: white; border: none; z-index: 15;">🗑</button>
+<script>
+  document.getElementById('resetAllBtn').addEventListener('click', () => {
+    if (confirm('모든 정보를 삭제하시겠습니까?')) {
+      localStorage.removeItem('savedCards');
+      location.reload();
+    }
+  });
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(reg => console.log('Service Worker registered:', reg))
+        .catch(err => console.error('Service Worker registration failed:', err));
+    });
+  }
+</script>
+</body>
+</html>
