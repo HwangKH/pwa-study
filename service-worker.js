@@ -1,40 +1,41 @@
-const CACHE_NAME = "valetcardchecker-cache-v1";
+
+const CACHE_NAME = "pwa-study-v1";
+const BASE = "/pwa-study/";
+
 const urlsToCache = [
-  "/valetcardchecker/",
-  "/valetcardchecker/index.html",
-  "/valetcardchecker/manifest.json",
-  "/valetcardchecker/service-worker.js",
-  "/valetcardchecker/icons/icon-192.png",
-  "/valetcardchecker/icons/icon-512.png",
-  "https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap"
-  // 여기에 필요한 정적 리소스를 추가하세요
+  BASE,
+  BASE + "index.html",
+  BASE + "manifest.json",
+  BASE + "icon-192.png",
+  BASE + "icon-512.png"
 ];
 
 self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(urlsToCache);
-    })
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(urlsToCache))
   );
-});
-
-self.addEventListener("fetch", event => {
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      return response || fetch(event.request).catch(() => {
-        // 오프라인 대체 페이지가 있다면 여기에 추가
-        return caches.match('/valetcardchecker/index.html');
-      });
-    })
-  );
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", event => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))
-      );
-    })
+    caches.keys().then(keys =>
+      Promise.all(
+        keys.filter(k => k !== CACHE_NAME)
+            .map(k => caches.delete(k))
+      )
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+  if (new URL(event.request.url).origin !== self.location.origin) return;
+
+  event.respondWith(
+    caches.match(event.request).then(cached =>
+      cached || fetch(event.request)
+    )
   );
 });
